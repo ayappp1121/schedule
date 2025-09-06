@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>大学受験準備スケジュール</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    html,body{overflow-x:hidden}
+    body{touch-action: pan-y}
+
+    .day-cell{position:relative; height:150px; background:#fff; border:1px solid #e5e7eb; overflow-y:auto}
+    .dark .day-cell{background:#1f2937; border-color:#374151}
+
+    /* レイヤー順序を明確化 */
+    #calendar{position:relative; z-index:0}
+    #overlay{position:absolute; inset:0; pointer-events:none; z-index:10}
+
+    .bar{position:absolute; font-size:.95rem; color:#fff; background:#111827; user-select:none; cursor:grab; border-radius:14px; pointer-events:auto; z-index:20; padding:6px 72px 6px 14px; min-height:28px; line-height:1.3}
+    .bar.single,.bar.multi{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; height:28px; line-height:28px; padding-top:0; padding-bottom:0}
+
+    .bar.red{background:#EF4444}
+    .bar.green{background:#10B981}
+    .bar.blue{background:#3B82F6}
+    .bar.purple{background:#8B5CF6}
+    .bar.orange{background:#F59E0B}
+    .bar.black{background:#111827}
+    .bar-del{position:absolute; right:8px; top:50%; transform:translateY(-50%); opacity:.9}
+
+    .handle{position:absolute; top:50%; transform:translateY(-50%); width:18px; height:18px; border-radius:9px; background:rgba(255,255,255,.96); color:#1f2937; display:grid; place-items:center; font-weight:700; font-size:10px; cursor:ew-resize; box-shadow:0 0 0 1px rgba(0,0,0,.05)}
+    .handle-left{left:6px}
+    .handle-right{right:34px}
+
+    .selecting{outline:2px dashed rgba(59,130,246,.9); outline-offset:-2px}
+
+    .todo-item{cursor:grab; font-size:1rem; padding:12px 14px}
+    .todo-item .del{font-size:1.1rem}
+
+    /* モーダルは最前面 */
+    .modal-mask{background:rgba(0,0,0,.45); z-index:1000}
+    .modal-open{overflow:hidden}
+
+    .color-swatch{width:22px;height:22px;border-radius:9999px;border:1px solid #e5e7eb;cursor:pointer}
+    .swatch-selected{outline:2px solid #111827}
+
+    /* インライン入力（コンパクト） */
+    .inline-form{position:absolute; left:6px; right:6px; top:28px; z-index:50; display:flex; gap:6px; align-items:center}
+    .inline-input{flex:1; padding:4px 8px; border:1px solid #cbd5e1; border-radius:8px; background:rgba(255,255,255,.96); font-size:.9rem}
+    .inline-btn{padding:4px 10px; border-radius:8px; background:#111827; color:#fff; font-size:.85rem}
+
+    .quick-days{display:flex; flex-wrap:wrap; gap:8px}
+    .quick-btn{padding:6px 10px; border:1px solid #cbd5e1; border-radius:9999px; font-size:.85rem; background:#fff; cursor:pointer}
+    .quick-btn:hover{background:#f3f4f6}
+  </style>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+  <div class="max-w-7xl mx-auto p-4">
+    <header class="flex items-center justify-between gap-3 mb-3">
+      <h1 class="text-2xl font-semibold">大学受験準備スケジュール</h1>
+      <div class="flex items-center gap-2">
+        <button id="todayBtn" class="px-3 py-2 text-sm rounded-lg bg-gray-900 text-white dark:bg:white dark:text-gray-900">今日</button>
+        <button id="prevMonth" class="px-3 py-2 text-sm rounded-lg border">◀︎</button>
+        <div id="monthLabel" class="min-w-[150px] text-center font-medium"></div>
+        <button id="nextMonth" class="px-3 py-2 text-sm rounded-lg border">▶︎</button>
+      </div>
+    </header>
+
+    <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
+      <section class="md:col-span-3 lg:col-span-3 relative">
+        <div class="grid grid-cols-7 text-center text-xs text-gray-500 dark:text-gray-400 mb-1">
+          <div>日</div><div>月</div><div>火</div><div>水</div><div>木</div><div>金</div><div>土</div>
+        </div>
+        <div id="calWrap" class="relative select-none">
+          <div id="calendar" class="grid grid-cols-7 gap-px bg-gray-200 dark:bg-gray-700"></div>
+          <div id="overlay"></div>
+        </div>
+      </section>
+
+      <aside class="md:col-span-2 lg:col-span-2">
+        <div class="rounded-2xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow">
+          <div class="p-4 border-b border-gray-200 dark:border-gray-700">
+            <h2 class="text-base font-medium">TODOリスト</h2>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1"></p>
+          </div>
+          <div class="p-4 space-y-4">
+            <form id="todoForm" class="flex gap-2" autocomplete="off">
+              <input id="todoInput" class="flex-1 px-4 py-3 text-base rounded-xl border border-gray-300 dark:border-gray-600 bg-white/90 dark:bg-gray-900/40" placeholder="例：資料ファイル構成を決める" required />
+              <button class="px-4 py-3 text-base rounded-xl bg-blue-500 text-white">追加</button>
+            </form>
+            <ul id="todoList" class="space-y-3"></ul>
+            <div class="flex items-center justify-end">
+              <button id="clearTodos" class="text-sm px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700">全削除</button>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <!-- 詳細編集モーダル -->
+  <div id="detailModal" class="fixed inset-0 hidden items-center justify-center modal-mask p-4">
+    <div class="w-full max-w-md rounded-2xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow p-5">
+      <h4 class="text-base font-medium mb-3">イベント詳細</h4>
+      <label class="block text-sm mb-1">タイトル</label>
+      <input id="detailTitle" class="w-full mb-3 p-2 border rounded bg-white/90 dark:bg-gray-900/40" placeholder="タイトル" />
+  <div class="grid grid-cols-2 gap-4 items-end mb-3">
+    <div>
+      <label class="block text-sm mb-1">色</label>
+      <div id="detailColors" class="flex items-center gap-2"></div>
+    </div>
+    <div>
+      <label class="block text-sm mb-1">日数</label>
+      <input id="detailDays" type="number" min="1" step="1"
+             class="w-full p-2 border rounded bg-white/90 dark:bg-gray-900/40" />
+    </div>
+  </div>
+      <label class="block text-sm mb-1">詳細</label>
+      <textarea id="detailNote" class="w-full h-36 p-2 border rounded bg-white/90 dark:bg-gray-900/40" placeholder="メモや計画など"></textarea>
+      <div class="flex justify-between items-center mt-4">
+        <button id="detailDelete" class="px-3 py-2 text-red-600 border border-red-200 dark:border-red-500/40 rounded hover:bg-red-50 dark:hover:bg-red-900/20">削除</button>
+        <div class="flex gap-2">
+          <button id="detailCancel" class="px-3 py-2 border rounded">キャンセル</button>
+          <button id="detailSave" class="px-3 py-2 bg-blue-500 text-white rounded">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 期間＆色＆詳細の入力モーダル（TODOドロップ後） -->
+  <div id="rangeModal" class="fixed inset-0 hidden items-center justify-center modal-mask p-4">
+    <div class="w-full max-w-sm rounded-2xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow p-5">
+      <h4 class="text-base font-medium mb-3">期間・詳細・色</h4>
+      <div class="quick-days mb-3" id="quickDays"></div>
+      <div class="grid grid-cols-2 gap-4 items-end mb-3">
+        <div>
+          <label class="block text-sm mb-1">日数</label>
+          <input id="rangeDays" type="number" min="1" step="1" value="1" class="w-full p-2 border rounded bg-white/90 dark:bg-gray-900/40" />
+        </div>
+        <div>
+          <label class="block text-sm mb-1">色</label>
+          <div id="rangeColors" class="flex items-center gap-2"></div>
+        </div>
+      </div>
+      <label class="block text-sm mb-1">詳細（任意）</label>
+      <textarea id="rangeNote" class="w-full h-28 p-2 border rounded bg-white/90 dark:bg-gray-900/40" placeholder="このタスクの具体的な内容や目標"></textarea>
+      <div class="flex justify-end gap-2 mt-5">
+        <button id="rangeCancel" class="px-3 py-2 border rounded">キャンセル</button>
+        <button id="rangeOk" class="px-3 py-2 bg-blue-500 text-white rounded">作成</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_KEY = 'geidai_demo_schedule_v15';
+    let state = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{"events":[],"todos":[],"view":{"year":2025,"month":9}}');
+    const save = ()=>localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+
+    const COLORS=['black','blue','green','red','purple','orange'];
+    const pad=n=>String(n).padStart(2,'0');
+    const ymd=(d)=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+    const daysInMonth=(y,m)=>new Date(y,m,0).getDate();
+
+    // ===== 要素参照 =====
+    const monthLabel=document.getElementById('monthLabel');
+    const calendar=document.getElementById('calendar');
+    const calWrap=document.getElementById('calWrap');
+    const overlay=document.getElementById('overlay');
+
+    const detailModal=document.getElementById('detailModal');
+    const detailTitle=document.getElementById('detailTitle');
+    const detailNote=document.getElementById('detailNote');
+    const detailColors=document.getElementById('detailColors');
+    const detailCancel=document.getElementById('detailCancel');
+    const detailSave=document.getElementById('detailSave');
+    const detailDelete=document.getElementById('detailDelete');
+    const detailDays = document.getElementById('detailDays'); // ← 追加
+
+
+    const rangeModal=document.getElementById('rangeModal');
+    const rangeDays=document.getElementById('rangeDays');
+    const rangeColors=document.getElementById('rangeColors');
+    const rangeNote=document.getElementById('rangeNote');
+    const rangeCancel=document.getElementById('rangeCancel');
+    const rangeOk=document.getElementById('rangeOk');
+    const quickDays=document.getElementById('quickDays');
+
+    const todoForm=document.getElementById('todoForm');
+    const todoInput=document.getElementById('todoInput');
+    const todoList=document.getElementById('todoList');
+
+    // ===== カレンダー構築 =====
+    function buildCalendar(){
+      const y=state.view.year, m=state.view.month;
+      const first=new Date(y, m-1, 1);
+      const startDay=first.getDay();
+      const dim=daysInMonth(y,m);
+      const totalCells=Math.ceil((startDay+dim)/7)*7;
+      monthLabel.textContent=`${y}年 ${m}月`;
+      calendar.innerHTML='';
+
+      for(let i=0;i<totalCells;i++){
+        const dnum=i-startDay+1;
+        const cell=document.createElement('div');
+        cell.className='day-cell'+((dnum<1||dnum>dim)?' opacity-40':'');
+        if(dnum>=1 && dnum<=dim){
+          const key=`${y}-${pad(m)}-${pad(dnum)}`;
+          cell.dataset.date=key;
+          const badge=document.createElement('div');
+          badge.className='sticky top-0 bg-white/80 dark:bg-gray-800/80 backdrop-blur px-1 text-xs text-gray-500';
+          badge.textContent=dnum;
+          cell.appendChild(badge);
+
+          cell.addEventListener('dragover', e=>{ e.preventDefault(); cell.classList.add('selecting'); });
+          cell.addEventListener('dragleave', ()=> cell.classList.remove('selecting'));
+          cell.addEventListener('drop', onDropToCalendar);
+
+          // 直接入力（ダブルクリックで1日）
+          cell.addEventListener('dblclick', ()=> openInlineInput(cell, key));
+          // 範囲ドラッグで作成
+          cell.addEventListener('mousedown', (e)=> startDragCreate(e, key));
+          cell.addEventListener('mouseenter', ()=> updateDragCreate(key));
+          cell.addEventListener('mouseup', ()=> endDragCreate());
+        }
+        calendar.appendChild(cell);
+      }
+      render();
+    }
+
+    // ===== セル内インライン入力（コンパクト） =====
+    function openInlineInput(cell, key, endKey=null){
+      cell.querySelectorAll('.inline-form').forEach(n=>n.remove());
+      const form=document.createElement('form'); form.className='inline-form'; form.autocomplete='off';
+      const input=document.createElement('input'); input.className='inline-input'; input.placeholder='タイトル'; input.required=true;
+      const ok=document.createElement('button'); ok.type='submit'; ok.className='inline-btn'; ok.textContent='追加';
+      form.appendChild(input); form.appendChild(ok); cell.appendChild(form);
+      input.focus();
+      const close=()=>{ form.remove(); };
+      form.addEventListener('submit',(e)=>{
+        e.preventDefault(); const title=input.value.trim(); if(!title){input.focus();return;}
+        const id=`${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
+        const start=key; const end=endKey||key;
+        state.events.push({id, text:title, start, end, color:'black'});
+        save(); close(); clearRangeHighlight(); buildCalendar();
+      });
+      input.addEventListener('keydown',(e)=>{ if(e.key==='Escape'){ close(); clearRangeHighlight(); } });
+      input.addEventListener('blur', ()=>{ setTimeout(()=>{ close(); clearRangeHighlight(); }, 120); });
+    }
+
+    // ===== 範囲ドラッグ作成 =====
+    let dragStartKey=null; let dragCurrentKey=null; let dragging=false;
+    function keyToDate(k){ const [y,m,d]=k.split('-').map(Number); return new Date(y,m-1,d); }
+    function compareKeys(a,b){ return keyToDate(a)-keyToDate(b); }
+    function dateKeysBetween(a,b){ const res=[]; const da=keyToDate(a), db=keyToDate(b); const step = da<=db?1:-1; const start=new Date(da); for(let d=start; step>0? d<=db: d>=db; d.setDate(d.getDate()+step)){ res.push(ymd(d)); } return res; }
+
+    function startDragCreate(e, key){ if(e.button!==0) return; dragging=true; dragStartKey=key; dragCurrentKey=key; clearRangeHighlight(); highlightRange(dragStartKey, dragCurrentKey); document.addEventListener('mouseup', endDragCreate, {once:true}); }
+    function updateDragCreate(key){ if(!dragging) return; dragCurrentKey=key; clearRangeHighlight(); highlightRange(dragStartKey, dragCurrentKey); }
+    function endDragCreate(){ if(!dragging) return; const [a,b] = compareKeys(dragStartKey, dragCurrentKey)<=0 ? [dragStartKey, dragCurrentKey] : [dragCurrentKey, dragStartKey]; const startCell=document.querySelector(`[data-date="${a}"]`); openInlineInput(startCell, a, b); dragging=false; }
+
+    function clearRangeHighlight(){ document.querySelectorAll('.day-cell.range').forEach(n=>n.classList.remove('range','selecting')); }
+    function highlightRange(a,b){ const keys=dateKeysBetween(a,b); keys.forEach(k=>{ const c=document.querySelector(`[data-date="${k}"]`); if(c){ c.classList.add('range','selecting'); } }); }
+
+    // ===== 描画（自動段組み） =====
+    function render(){
+      overlay.innerHTML='';
+      const calRect = calWrap.getBoundingClientRect();
+      const cellMap = {};
+      calWrap.querySelectorAll('[data-date]').forEach(cell=>{
+        const r = cell.getBoundingClientRect();
+        cellMap[cell.dataset.date] = { left: r.left - calRect.left, right: r.right - calRect.left, top: r.top - calRect.top, width: r.width };
+      });
+
+      const y=state.view.year, m=state.view.month, dim=daysInMonth(y,m);
+      const monthStartKey = `${y}-${pad(m)}-01`;
+      const monthEndKey   = `${y}-${pad(m)}-${pad(dim)}`;
+
+      const lanes = {};
+      const laneHeight = 32;
+      const eventsSorted = [...state.events].sort((a,b)=> (a.start<b.start? -1 : a.start>b.start? 1 : 0));
+
+      eventsSorted.forEach(ev=>{
+        const s = new Date(ev.start), e = new Date(ev.end||ev.start);
+        const visibleStart = new Date(Math.max(new Date(monthStartKey), s));
+        const visibleEnd   = new Date(Math.min(new Date(monthEndKey), e));
+        if(visibleEnd < visibleStart) return;
+
+        let cur = new Date(visibleStart);
+        while(cur <= visibleEnd){
+          const dnum = cur.getDate();
+          const widx = Math.floor((new Date(y,m-1,1).getDay() + (dnum-1))/7);
+          const startDow = cur.getDay();
+          const weekEndDow = 6;
+          const maxDayInThisWeek = dnum + (weekEndDow - startDow);
+          const chunkEndDay = Math.min(maxDayInThisWeek, visibleEnd.getDate());
+          const chunkStartKey = ymd(cur);
+          const chunkEnd = new Date(cur.getFullYear(), cur.getMonth(), chunkEndDay);
+          const chunkEndKey = ymd(chunkEnd);
+
+          const a = cellMap[chunkStartKey];
+          const b = cellMap[chunkEndKey];
+          if(a && b){
+            const topBase = a.top + 26;
+            const left = a.left + 2;
+            const width = Math.max(32, (b.right - a.left) - 4);
+
+            const weekLane = (lanes[widx] ||= []);
+            const startCol = startDow;
+            const endCol = Math.min(6, startDow + (chunkEndDay - dnum));
+
+            let laneIndex = 0;
+            while(true){
+              if(!weekLane[laneIndex]){ weekLane[laneIndex] = []; break; }
+              const overlap = weekLane[laneIndex].some(r => !(endCol < r.startCol || startCol > r.endCol));
+              if(!overlap) break;
+              laneIndex++;
+            }
+            weekLane[laneIndex].push({startCol, endCol});
+
+            const barTop = topBase + laneIndex * laneHeight;
+            const isSingleChunk = (chunkStartKey === chunkEndKey);
+            const bar = document.createElement('div');
+            bar.className = `bar ${(ev.color||'black')} ${isSingleChunk?'single':'multi'}`;
+            bar.style.left = left + 'px';
+            bar.style.top = barTop + 'px';
+            bar.style.width = width + 'px';
+            bar.dataset.id = ev.id;
+            bar.draggable = true;
+
+            bar.addEventListener('dragstart',(e)=>{ e.dataTransfer.setData('dragType','event'); e.dataTransfer.setData('evId', ev.id); e.dataTransfer.setData('anchor', ev.start); });
+
+            const text=document.createElement('div'); text.textContent = ev.text; bar.appendChild(text);
+            const del=document.createElement('button'); del.className='bar-del'; del.textContent='✕'; del.addEventListener('click',(e)=>{ e.stopPropagation(); deleteEvent(ev.id); }); bar.appendChild(del);
+
+            if(isSingleChunk){
+              const hl=document.createElement('div'); hl.className='handle handle-left'; hl.textContent='◀'; hl.addEventListener('mousedown',(e)=>startResize(e,ev.id,'start')); bar.appendChild(hl);
+              const hr=document.createElement('div'); hr.className='handle handle-right'; hr.textContent='▶'; hr.addEventListener('mousedown',(e)=>startResize(e,ev.id,'end')); bar.appendChild(hr);
+            } else {
+              if(chunkStartKey === ev.start){ const hl=document.createElement('div'); hl.className='handle handle-left'; hl.textContent='◀'; hl.addEventListener('mousedown',(e)=>startResize(e,ev.id,'start')); bar.appendChild(hl); }
+              if(chunkEndKey === ev.end){   const hr=document.createElement('div'); hr.className='handle handle-right'; hr.textContent='▶'; hr.addEventListener('mousedown',(e)=>startResize(e,ev.id,'end')); bar.appendChild(hr); }
+            }
+
+            bar.addEventListener('click',()=>openDetailModal(ev));
+            overlay.appendChild(bar);
+          }
+          cur = new Date(chunkEnd.getFullYear(), chunkEnd.getMonth(), chunkEnd.getDate()+1);
+        }
+      });
+    }
+
+    function deleteEvent(id){ state.events = state.events.filter(x=>x.id!==id); save(); buildCalendar(); }
+
+    // ===== 月切替 =====
+    document.getElementById('prevMonth').onclick=()=>{ const m=state.view.month-1; if(m<1){ state.view.month=12; state.view.year--; } else { state.view.month=m; } save(); buildCalendar(); };
+    document.getElementById('nextMonth').onclick=()=>{ const m=state.view.month+1; if(m>12){ state.view.month=1; state.view.year++; } else { state.view.month=m; } save(); buildCalendar(); };
+    document.getElementById('todayBtn').onclick=()=>{ const now=new Date(); state.view.year=now.getFullYear(); state.view.month=now.getMonth()+1; save(); buildCalendar(); };
+
+    // ===== リサイズ =====
+    let resizing=null;
+    function startResize(e,id,edge){ e.preventDefault(); e.stopPropagation(); resizing={id,edge}; document.addEventListener('mousemove',onResizeMove); document.addEventListener('mouseup',onResizeEnd,{once:true}); }
+    function onResizeMove(e){ if(!resizing) return; const cell=document.elementFromPoint(e.clientX,e.clientY)?.closest('[data-date]'); document.querySelectorAll('.selecting').forEach(n=>n.classList.remove('selecting')); if(cell) cell.classList.add('selecting'); }
+    function onResizeEnd(e){ const cell=document.elementFromPoint(e.clientX,e.clientY)?.closest('[data-date]'); document.querySelectorAll('.selecting').forEach(n=>n.classList.remove('selecting')); if(cell&&resizing){ const key=cell.dataset.date; const ev=state.events.find(x=>x.id===resizing.id); if(ev){ if(resizing.edge==='start'){ if(key<=ev.end){ev.start=key;}else{ev.start=ev.end;ev.end=key;} } else { if(key>=ev.start){ev.end=key;}else{ev.end=ev.start;ev.start=key;} } save(); buildCalendar(); } } resizing=null; document.removeEventListener('mousemove', onResizeMove); }
+
+    // ===== 詳細モーダル（色変更可） =====
+    let currentEv=null; let detailColor='black';
+    function colorToHex(c){ switch(c){ case 'red': return '#EF4444'; case 'green': return '#10B981'; case 'blue': return '#3B82F6'; case 'purple': return '#8B5CF6'; case 'orange': return '#F59E0B'; default: return '#111827'; } }
+    function renderColorSwatches(container, current, onPick){ container.innerHTML=''; COLORS.forEach(c=>{ const sw=document.createElement('button'); sw.type='button'; sw.className='color-swatch'+(c===current?' swatch-selected':''); sw.style.background=colorToHex(c); sw.addEventListener('click',()=>{ onPick(c); renderColorSwatches(container, c, onPick); }); container.appendChild(sw); }); }
+    function openDetailModal(ev){ currentEv=ev; detailColor=ev.color||'black'; detailTitle.value=ev.text; detailNote.value=ev.note||''; 
+const startDate = new Date(ev.start);
+const endDate = new Date(ev.end || ev.start);
+const diffDays = Math.round((endDate - startDate) / (1000*60*60*24)) + 1;
+detailDays.value = diffDays;
+renderColorSwatches(detailColors, detailColor, (c)=>{ detailColor=c; }); document.body.classList.add('modal-open'); detailModal.classList.remove('hidden'); detailModal.classList.add('flex'); }
+    function closeDetail(){ detailModal.classList.add('hidden'); detailModal.classList.remove('flex'); document.body.classList.remove('modal-open'); }
+    detailCancel.onclick=closeDetail;
+    detailSave.onclick = () => {
+  if(currentEv){
+    currentEv.text = detailTitle.value;
+    currentEv.note = detailNote.value;
+    currentEv.color = detailColor;
+
+    // ★ ここで日数を反映
+    const n = Math.max(1, parseInt(detailDays.value || '1', 10));
+    const s = new Date(currentEv.start);
+    const e = new Date(s);
+    e.setDate(e.getDate() + n - 1);
+    currentEv.end = `${e.getFullYear()}-${String(e.getMonth()+1).padStart(2,'0')}-${String(e.getDate()).padStart(2,'0')}`;
+
+    save();
+    buildCalendar();
+  }
+  closeDetail();
+};
+
+
+    // ===== 未割当（TODO） =====
+    function renderTodos(){
+      todoList.innerHTML='';
+      state.todos.forEach((t,i)=>{
+        const li=document.createElement('li'); li.className='todo-item flex items-center gap-3 p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-900/40'; li.draggable=true;
+        li.addEventListener('dragstart',(e)=>{ e.dataTransfer.setData('dragType','todo'); e.dataTransfer.setData('todoIndex', String(i)); });
+        const span=document.createElement('span'); span.textContent=t.text; span.className='flex-1';
+        const del=document.createElement('button'); del.textContent='✕'; del.className='del text-gray-400 hover:text-red-600'; del.onclick=()=>{ state.todos.splice(i,1); save(); renderTodos(); };
+        li.appendChild(span); li.appendChild(del); todoList.appendChild(li);
+      });
+    }
+    todoForm.addEventListener('submit',(e)=>{ e.preventDefault(); const text=todoInput.value.trim(); if(!text) return; state.todos.push({text}); todoInput.value=''; save(); renderTodos(); });
+    document.getElementById('clearTodos').onclick=()=>{ if(confirm('未割当を全て削除しますか？')){ state.todos=[]; save(); renderTodos(); } };
+
+    // ===== 期間テンプレ =====
+    function renderQuickDays(){
+      quickDays.innerHTML='';
+      const presets=[{label:'1日',days:1},{label:'3日',days:3},{label:'1週間',days:7},{label:'2週間',days:14},{label:'3週間',days:21}];
+      presets.forEach(p=>{ const btn=document.createElement('button'); btn.type='button'; btn.className='quick-btn'; btn.textContent=p.label; btn.addEventListener('click',()=>{ rangeDays.value=p.days; }); quickDays.appendChild(btn); });
+    }
+
+    // ===== TODOやイベントのドロップ処理 =====
+    let pendingDrop=null; let pendingColor='black';
+    function renderRangeColors(current){ rangeColors.innerHTML=''; COLORS.forEach(c=>{ const sw=document.createElement('button'); sw.type='button'; sw.className='color-swatch'+(c===current?' swatch-selected':''); sw.style.background=colorToHex(c); sw.addEventListener('click',()=>{ pendingColor=c; renderRangeColors(c); }); rangeColors.appendChild(sw); }); }
+
+    function openRangeModal(startKey, text){ pendingDrop={ startKey, text }; pendingColor='black'; rangeDays.value=1; rangeNote.value=''; renderRangeColors(pendingColor); renderQuickDays(); document.body.classList.add('modal-open'); rangeModal.classList.remove('hidden'); rangeModal.classList.add('flex'); }
+    function closeRangeModal(){ rangeModal.classList.add('hidden'); rangeModal.classList.remove('flex'); pendingDrop=null; document.body.classList.remove('modal-open'); }
+    rangeCancel.onclick=closeRangeModal;
+    rangeOk.onclick=()=>{ if(!pendingDrop) return closeRangeModal(); const n=Math.max(1, parseInt(rangeDays.value||'1',10)); const start=new Date(pendingDrop.startKey); const end=new Date(start); end.setDate(end.getDate()+n-1); const id=`${Date.now()}_${Math.random().toString(36).slice(2,7)}`; state.events.push({id, text: pendingDrop.text, start: pendingDrop.startKey, end: ymd(end), color: pendingColor, note: rangeNote.value}); const idx=state.todos.findIndex(t=>t.text===pendingDrop.text); if(idx>-1) state.todos.splice(idx,1); save(); buildCalendar(); renderTodos(); closeRangeModal(); };
+
+    function onDropToCalendar(e){ e.preventDefault(); const cell=e.currentTarget; cell.classList.remove('selecting'); const startKey=cell.dataset.date; const dragType=e.dataTransfer.getData('dragType'); if(dragType==='todo'){ const idx=parseInt(e.dataTransfer.getData('todoIndex'),10); const t=state.todos[idx]; if(!t) return; openRangeModal(startKey, t.text); return; } if(dragType==='event'){ const evId=e.dataTransfer.getData('evId'); const anchor=e.dataTransfer.getData('anchor'); const ev=state.events.find(x=>x.id===evId); if(!ev) return; const delta=Math.round((new Date(startKey)-new Date(anchor))/(1000*60*60*24)); const ns=new Date(ev.start); ns.setDate(ns.getDate()+delta); const ne=new Date(ev.end); ne.setDate(ne.getDate()+delta); ev.start=ymd(ns); ev.end=ymd(ne); save(); buildCalendar(); } }
+
+    // 初期化
+    function init(){ buildCalendar(); renderTodos(); }
+    init();
+  </script>
+</body>
+</html>
