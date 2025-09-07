@@ -511,6 +511,8 @@
           state = remote; // リモート優先読み込み
           localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
           isApplyingRemote = false;
+          buildCalendar();
+          renderTodos();
         }
       }
       syncReady = true;
@@ -534,3 +536,4 @@
   </script>
 </body>
 </html>
+
