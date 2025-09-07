@@ -532,63 +532,6 @@
 -    renderTodos();
 -    isApplyingRemote = false;
 -  });
-+  console.log('[sync] initSync start', { roomId, dbReady: !!window.__db });
-+
-+  // 1) 先に購読を開始しておく（初期化の間の更新も取りこぼさない）
-+  let firstSnapshotApplied = false;
-+  onSnapshot(ref, (s)=>{
-+    const data = s.data(); 
-+    if(!data){ return; }
-+
-+    const incoming = data.state;
-+    const current  = state;
-+
-+    // ★ 差分判定を「緩く」する：
-+    //    - 値が空/未定義 → 受け取る
-+    //    - updatedAt が変わっている → 受け取る
-+    //    - JSONの完全一致でも、初回は必ず受け取る
-+    const updatedAtChanged = !!data.updatedAt;
-+    const jsonEqual = JSON.stringify(incoming) === JSON.stringify(current);
-+    const shouldApply = !firstSnapshotApplied || !jsonEqual || updatedAtChanged;
-+
-+    if(!shouldApply){ 
-+      // 変化なしとしても初回フラグだけは立てる
-+      firstSnapshotApplied = true;
-+      return; 
-+    }
-+
-+    console.log('[sync] apply remote → UI 更新');
-+    isApplyingRemote = true;
-+    state = incoming;
-+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-+    buildCalendar();
-+    renderTodos();
-+    isApplyingRemote = false;
-+    firstSnapshotApplied = true;
-+  }, (err)=>{
-+    console.error('[sync] onSnapshot error', err);
-+  });
-+
-+  // 2) 初期ドキュメントを作成/取得して、購読が走っていなくてもUIを作れるようにする
-+  const snap = await getDoc(ref);
-+  if(!snap.exists()){
-+    console.log('[sync] create initial doc');
-+    await setDoc(ref, { state, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-+  } else {
-+    const remote = snap.data()?.state;
-+    if(remote){
-+      console.log('[sync] getDoc apply remote → UI 更新(初回)');
-+      isApplyingRemote = true;
-+      state = remote;
-+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-+      buildCalendar();
-+      renderTodos();
-+      isApplyingRemote = false;
-+    }
-+  }
-+  syncReady = true;
- }
-
 
     // 初期化
     function init(){ buildCalendar(); renderTodos(); }
@@ -597,5 +540,6 @@
   </script>
 </body>
 </html>
+
 
 
