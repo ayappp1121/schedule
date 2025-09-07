@@ -497,38 +497,37 @@
     }
 
     // ===== Firestore 同期初期化 =====
-     async function initSync(){
-   if(!window.__db) return; // Firebase未設定ならスキップ
--  const { doc, getDoc, onSnapshot, setDoc, serverTimestamp } =
--    await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
-   const ref = doc(window.__db, 'rooms', roomId);
--  const snap = await getDoc(ref);
--  if(!snap.exists()){
--    await setDoc(ref, { state, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
--  } else {
--    const remote = snap.data()?.state;
--    if(remote){
--      isApplyingRemote = true;
--      state = remote; // リモート優先読み込み
--      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
--      isApplyingRemote = false;
--      buildCalendar();
--      renderTodos();
--    }
--  }
--  syncReady = true;
--
--  // 以降のリアルタイム受信
--  onSnapshot(ref, (s)=>{
--    const data = s.data(); if(!data) return;
--    if(JSON.stringify(data.state) === JSON.stringify(state)) return; // 変化なし
--    isApplyingRemote = true;
--    state = data.state;
--    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
--    buildCalendar();
--    renderTodos();
--    isApplyingRemote = false;
--  });
+    async function initSync(){
+      if(!window.__db) return; // Firebase未設定ならスキップ
+      const { doc, getDoc, onSnapshot, setDoc, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+      const ref = doc(window.__db, 'rooms', roomId);
+      const snap = await getDoc(ref);
+      if(!snap.exists()){
+        await setDoc(ref, { state, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+      } else {
+        const remote = snap.data()?.state;
+        if(remote){
+          isApplyingRemote = true;
+          state = remote; // リモート優先読み込み
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+          isApplyingRemote = false;
+          buildCalendar();
+          renderTodos();
+        }
+      }
+      syncReady = true;
+      // 以降のリアルタイム受信
+      onSnapshot(ref, (s)=>{
+        const data = s.data(); if(!data) return;
+        if(JSON.stringify(data.state) === JSON.stringify(state)) return; // 変化なし
+        isApplyingRemote = true;
+        state = data.state;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        buildCalendar();
+        renderTodos();
+        isApplyingRemote = false;
+      });
+    }
 
     // 初期化
     function init(){ buildCalendar(); renderTodos(); }
@@ -537,7 +536,3 @@
   </script>
 </body>
 </html>
-
-
-
-
