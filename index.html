@@ -175,6 +175,10 @@
   </div>
 
   <script>
+    
+    const BUILD_ID = '2025-09-07-01'; // 日付や連番を入れる
+    console.info('BUILD', BUILD_ID);
+    
     const STORAGE_KEY = 'geidai_demo_schedule_v15';
     let state = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{"events":[],"todos":[],"view":{"year":2025,"month":9}}');
 
@@ -536,3 +540,4 @@
   </script>
 </body>
 </html>
+
